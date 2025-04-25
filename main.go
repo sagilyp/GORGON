@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"time"
@@ -62,6 +63,10 @@ func updateAll() {
 }
 
 func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go StartJournalAlerts(ctx)
+
 	updateAll()
 	ticker := time.NewTicker(UpdateInterval)
 	defer ticker.Stop()

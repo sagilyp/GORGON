@@ -2,4 +2,6 @@ module tor-filtering
 
 go 1.23.5
 
-require github.com/mattn/go-sqlite3 v1.14.24
+require github.com/coreos/go-systemd/v22 v22.5.0
+
+require github.com/pkg/errors v0.9.1 // indirect

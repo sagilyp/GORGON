@@ -13,6 +13,20 @@ func runCmd(name string, args ...string) error {
 	return nil
 }
 
+func applyLogRule(chain, set, match string) error {
+	prefix := fmt.Sprintf("TOR_BLOCK %s: ", set)
+	if err := runCmd("sudo", "iptables", "-C", chain,
+		"-m", "set", "--match-set", set, match,
+		"-j", "LOG", "--log-prefix", prefix, "--log-level", "4",
+	); err == nil {
+		return nil
+	}
+	return runCmd("sudo", "iptables", "-I", chain, "1",
+		"-m", "set", "--match-set", set, match,
+		"-j", "LOG", "--log-prefix", prefix, "--log-level", "4",
+	)
+}
+
 func RemoveIPsFromIPSet(setName string, ips []string) error {
 	for _, ip := range ips {
 		runCmd("sudo", "ipset", "del", setName, ip)
@@ -42,9 +56,15 @@ func applyRule(chain, setName, matchDir string) error {
 }
 
 func ApplyInbound(setName string) error {
+	if err := applyLogRule("INPUT", setName, "src"); err != nil {
+		return fmt.Errorf("apply inbound log %s: %w", setName, err)
+	}
 	return applyRule("INPUT", setName, "src")
 }
 
 func ApplyOutbound(setName string) error {
+	if err := applyLogRule("OUTPUT", setName, "dst"); err != nil {
+		return fmt.Errorf("apply outbound log %s: %w", setName, err)
+	}
 	return applyRule("OUTPUT", setName, "dst")
 }
