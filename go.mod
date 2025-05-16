@@ -4,4 +4,7 @@ go 1.23.5
 
 require github.com/coreos/go-systemd/v22 v22.5.0
 
-require github.com/pkg/errors v0.9.1 // indirect
+require (
+	github.com/pkg/errors v0.9.1 // indirect
+	golang.org/x/net v0.40.0 // indirect
+)
