@@ -1,0 +1,15 @@
+[Interface]
+Address = {{ wg_server_ip }}/24
+ListenPort = 51820
+PrivateKey = {{ wg_private_key_raw.content | b64decode | trim }}
+
+# PostUp/PostDown для NAT к workers (опционально)
+PostUp = iptables -A FORWARD -i wg0 -j ACCEPT
+PostUp = iptables -t nat -A POSTROUTING -s 10.200.200.0/24 -o eth0 -j MASQUERADE
+PostDown = iptables -D FORWARD -i wg0 -j ACCEPT
+PostDown = iptables -t nat -D POSTROUTING -s 10.200.200.0/24 -o eth0 -j MASQUERADE
+
+[Peer]
+# Локальная машина pesi-Pro-A
+PublicKey = {{ wg_client_public_key }}
+AllowedIPs = {{ wg_client_ip }}/32

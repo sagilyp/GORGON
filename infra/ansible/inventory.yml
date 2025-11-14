@@ -1,0 +1,32 @@
+all:
+  vars:
+    ansible_user: avuser
+    ansible_ssh_private_key_file: ~/.ssh/robo
+    ansible_python_interpreter: /usr/bin/python3
+    
+  children:
+    bastion:
+      hosts:
+        bastion-host:
+          ansible_host: 158.160.112.141
+          
+    workers:
+      hosts:
+        worker-1:
+          ansible_host: 10.10.10.8
+        worker-2:
+          ansible_host: 10.10.20.15
+        worker-3:
+          ansible_host: 10.10.30.30
+        worker-4:
+          ansible_host: 10.10.10.5
+        worker-5:
+          ansible_host: 10.10.20.7
+        worker-6:
+          ansible_host: 10.10.30.17
+        worker-7:
+          ansible_host: 10.10.10.24
+        worker-8:
+          ansible_host: 10.10.20.18
+      vars:
+        ansible_ssh_common_args: '-o ProxyJump=avuser@158.160.112.141'

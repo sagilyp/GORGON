@@ -1,0 +1,64 @@
+---
+- name: Setup WireGuard on bastion for management
+  hosts: bastion
+  become: yes
+  
+  vars:
+    wg_server_ip: "10.200.200.2"
+    wg_client_ip: "10.200.200.1"
+    wg_client_public_key: "gw+VBPjrm++KQSunNVdIipLW9yr6EIIp5YNiJoVqkCA="  # Замени на свой
+  
+  tasks:
+    - name: Install WireGuard
+      apt:
+        name:
+          - wireguard
+          - wireguard-tools
+        state: present
+
+    - name: Generate WireGuard keys
+      shell: |
+        umask 077
+        wg genkey | tee /etc/wireguard/privatekey | wg pubkey > /etc/wireguard/publickey
+      args:
+        creates: /etc/wireguard/privatekey
+
+    - name: Read private key
+      slurp:
+        src: /etc/wireguard/privatekey
+      register: wg_private_key_raw
+
+    - name: Read public key
+      slurp:
+        src: /etc/wireguard/publickey
+      register: wg_public_key_raw
+
+    - name: Display bastion WireGuard public key
+      debug:
+        msg: "Bastion Public Key: {{ wg_public_key_raw.content | b64decode | trim }}"
+
+    - name: Create WireGuard config
+      template:
+        src: ../templates/wg0.conf.j2
+        dest: /etc/wireguard/wg0.conf
+        mode: '0600'
+
+    - name: Enable IP forwarding
+      sysctl:
+        name: net.ipv4.ip_forward
+        value: '1'
+        state: present
+        reload: yes
+
+    - name: Start WireGuard
+      systemd:
+        name: wg-quick@wg0
+        enabled: yes
+        state: started
+
+    - name: Allow WireGuard port in firewall
+      ufw:
+        rule: allow
+        port: 51820
+        proto: udp
+      when: ansible_facts.services['ufw.service'] is defined

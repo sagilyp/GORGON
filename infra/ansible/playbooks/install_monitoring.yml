@@ -1,0 +1,47 @@
+---
+- name: Install Suricata and Zabbix on bastion
+  hosts: bastion
+  become: yes
+  
+  tasks:
+    - name: Install Suricata
+      apt:
+        name:
+          - suricata
+          - suricata-update
+        state: present
+
+    - name: Update Suricata rules
+      command: suricata-update
+      
+    - name: Enable and start Suricata
+      systemd:
+        name: suricata
+        enabled: yes
+        state: started
+
+    - name: Add Zabbix repository
+      shell: |
+        wget https://repo.zabbix.com/zabbix/6.0/ubuntu/pool/main/z/zabbix-release/zabbix-release_6.0-4+ubuntu22.04_all.deb
+        dpkg -i zabbix-release_6.0-4+ubuntu22.04_all.deb
+        apt update
+      args:
+        creates: /etc/apt/sources.list.d/zabbix.list
+
+    - name: Install Zabbix agent
+      apt:
+        name:
+          - zabbix-agent
+        state: present
+
+    - name: Configure Zabbix agent
+      lineinfile:
+        path: /etc/zabbix/zabbix_agentd.conf
+        regexp: '^Server='
+        line: 'Server=127.0.0.1'
+        
+    - name: Enable and start Zabbix agent
+      systemd:
+        name: zabbix-agent
+        enabled: yes
+        state: started

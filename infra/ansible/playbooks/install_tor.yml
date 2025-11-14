@@ -1,0 +1,90 @@
+---
+- name: Install Tor on all hosts
+  hosts: all
+  become: yes
+  
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install base packages
+      apt:
+        name:
+          - tor
+          - apt-transport-tor
+          - torsocks
+          - openvpn
+        state: present
+
+    - name: Copy OpenVPN config (bastion only)
+      copy:
+        src: "../files/{{ openvpn_config }}"
+        dest: "/etc/openvpn/client/{{ openvpn_config }}"
+        mode: '0600'
+      when: inventory_hostname in groups['bastion']
+
+    - name: Start OpenVPN (bastion only)
+      systemd:
+        name: "openvpn-client@14.36.131.192"
+        state: started
+        enabled: yes
+      when: inventory_hostname in groups['bastion']
+      ignore_errors: yes
+      tags:
+        - openvpn
+        - bastion
+
+    - name: Wait for Tor bootstrap on bastion first
+      wait_for:
+        port: 9050
+        host: 127.0.0.1
+        timeout: 60
+      when: inventory_hostname in groups['bastion']
+
+    - name: Start Tor service
+      systemd:
+        name: tor@default
+        state: started
+      
+    - name: Wait for Tor to come up
+      wait_for:
+        port: 9050
+        host: 127.0.0.1
+        timeout: 120
+
+    - name: Download Tor Project keyring via Tor
+      shell: |
+        torsocks wget -qO- {{ tor_keyring_url }} | gpg --dearmor | tee /usr/share/keyrings/tor-archive-keyring.gpg >/dev/null
+      args:
+        creates: /usr/share/keyrings/tor-archive-keyring.gpg
+
+    - name: Add Tor Project repository
+      copy:
+        content: |
+          deb [arch=amd64 signed-by=/usr/share/keyrings/tor-archive-keyring.gpg] {{ tor_repo_url }} {{ ubuntu_codename }} main
+          deb-src [arch=amd64 signed-by=/usr/share/keyrings/tor-archive-keyring.gpg] {{ tor_repo_url }} {{ ubuntu_codename }} main
+        dest: /etc/apt/sources.list.d/tor.list
+        mode: '0644'
+
+    - name: Update apt with Tor repo
+      apt:
+        update_cache: yes
+
+    - name: Upgrade to Tor from Project repo
+      apt:
+        name:
+          - tor
+          - deb.torproject.org-keyring
+        state: latest
+
+    - name: Enable Tor service
+      systemd:
+        name: tor@default
+        enabled: yes
+        state: started
+
+    - name: Autoremove unused packages
+      apt:
+        autoremove: yes

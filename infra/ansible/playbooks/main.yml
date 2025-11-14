@@ -1,0 +1,3 @@
+---
+- import_playbook: install_tor.yml
+- import_playbook: install_monitoring.yml
