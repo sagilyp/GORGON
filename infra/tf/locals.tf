@@ -9,6 +9,8 @@ locals {
 
   vpc_cidr = "10.10.0.0/16"
 
+  bastion_subnet_cidr = "10.10.99.0/24"
+  
   worker_count = 8
   workers = {
     for i in range (local.worker_count):

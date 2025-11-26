@@ -27,9 +27,11 @@ resource "yandex_compute_instance" "vms" {
   }
 
   network_interface {
-    subnet_id          = yandex_vpc_subnet.app_subnet[each.value.zone].id
+    subnet_id = each.key == "bastion-1" ? yandex_vpc_subnet.bastion_subnet.id : yandex_vpc_subnet.app_subnet[each.value.zone].id
     nat                = each.value.is_public
-    nat_ip_address     = each.key == "bastion-1" ? yandex_vpc_address.admin_static_ip.external_ipv4_address[0].address : null
+    nat_ip_address = each.key == "bastion-1" ? yandex_vpc_address.admin_static_ip.external_ipv4_address[0].address : null
+    ip_address = each.key == "bastion-1" ? "10.10.99.10" : null
+    
     security_group_ids = [
         each.value.is_public ? yandex_vpc_security_group.admin_sg.id : yandex_vpc_security_group.worker_sg.id
     ]

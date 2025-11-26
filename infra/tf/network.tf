@@ -9,9 +9,12 @@ resource "yandex_vpc_address" "admin_static_ip" {
   }
 }
 
-resource "yandex_vpc_gateway" "nat_gateway" {
-  name = "nat-gateway"
-  shared_egress_gateway {}
+resource "yandex_vpc_subnet" "bastion_subnet" {
+  name           = "bastion-subnet"
+  zone           = local.zones[0]
+  network_id     = yandex_vpc_network.app_network.id
+  v4_cidr_blocks = [local.bastion_subnet_cidr]
+  route_table_id = null
 }
 
 resource "yandex_vpc_subnet" "app_subnet" {
@@ -20,19 +23,20 @@ resource "yandex_vpc_subnet" "app_subnet" {
   zone       = each.key
   network_id = yandex_vpc_network.app_network.id
   v4_cidr_blocks = [each.value]
-  route_table_id = yandex_vpc_route_table.nat_route_table.id
+  route_table_id = yandex_vpc_route_table.via_bastion.id
 }
 
-
-resource "yandex_vpc_route_table" "nat_route_table" {
-  name       = "nat-route-table"
+resource "yandex_vpc_route_table" "via_bastion" {
+  name       = "via-bastion"
   network_id = yandex_vpc_network.app_network.id
+
   static_route {
     destination_prefix = "0.0.0.0/0"
-    gateway_id         = yandex_vpc_gateway.nat_gateway.id
+    # next_hop_address — внутренний IP бастиона в bastion_subnet
+    # здесь подставляем статический IP, который мы назначим в compute.tf (10.10.99.10)
+    next_hop_address   = "10.10.99.10"
   }
 }
-
 
 resource "yandex_vpc_security_group" "admin_sg" {
   name       = "admin-sg"
