@@ -1,0 +1,217 @@
+---
+- name: Install and configure Suricata, Snort, Zeek
+  hosts: bastion
+  become: yes
+  
+  vars:
+    home_network: "10.10.0.0/16"
+    monitoring_interface: "eth0"
+    
+  tasks:
+    # ==================== Common ====================
+    - name: Install common tools
+      apt:
+        name:
+          - software-properties-common
+          - apt-transport-https
+          - tcpdump
+          - net-tools
+          - curl
+          - gnupg
+        state: present
+
+    # ==================== Suricata ====================
+    - name: Add Suricata PPA
+      apt_repository:
+        repo: ppa:oisf/suricata-stable
+        state: present
+      tags: [suricata]
+
+    - name: Update apt cache for Suricata
+      apt:
+        update_cache: yes
+      tags: [suricata]
+
+    - name: Install Suricata
+      apt:
+        name:
+          - suricata
+          - jq
+        state: present
+      tags: [suricata]
+
+    - name: Configure Suricata HOME_NET
+      lineinfile:
+        path: /etc/suricata/suricata.yaml
+        regexp: '^\s+HOME_NET:'
+        line: '    HOME_NET: "[{{ home_network }}]"'
+      tags: [suricata]
+
+    - name: Configure Suricata interface
+      lineinfile:
+        path: /etc/default/suricata
+        regexp: '^IFACE='
+        line: 'IFACE={{ monitoring_interface }}'
+        create: yes
+      tags: [suricata]
+
+    - name: Update Suricata rules
+      shell: suricata-update
+      tags: [suricata]
+
+    - name: Enable Suricata service
+      systemd:
+        name: suricata
+        enabled: yes
+        state: started
+      tags: [suricata]
+
+    # ==================== Snort ====================
+    - name: Install Snort
+      apt:
+        name: snort
+        state: present
+      tags: [snort]
+      register: snort_install
+      ignore_errors: yes
+
+    - name: Configure Snort HOME_NET
+      lineinfile:
+        path: /etc/snort/snort.conf
+        regexp: '^ipvar HOME_NET'
+        line: 'ipvar HOME_NET {{ home_network }}'
+      when: snort_install is success
+      tags: [snort]
+
+    - name: Configure Snort interface
+      lineinfile:
+        path: /etc/snort/snort.debian.conf
+        regexp: '^DEBIAN_SNORT_INTERFACE='
+        line: 'DEBIAN_SNORT_INTERFACE="{{ monitoring_interface }}"'
+        create: yes
+      when: snort_install is success
+      tags: [snort]
+
+    # ==================== Zeek (Binary Package) ====================
+    - name: Add Zeek repository GPG key
+      shell: |
+        curl -fsSL https://download.opensuse.org/repositories/security:zeek/xUbuntu_20.04/Release.key | gpg --dearmor | tee /etc/apt/trusted.gpg.d/security_zeek.gpg > /dev/null
+      args:
+        creates: /etc/apt/trusted.gpg.d/security_zeek.gpg
+      tags: [zeek]
+
+    - name: Add Zeek repository
+      apt_repository:
+        repo: "deb https://download.opensuse.org/repositories/security:/zeek/xUbuntu_20.04/ /"
+        filename: security_zeek
+        state: present
+      tags: [zeek]
+
+    - name: Update apt cache for Zeek
+      apt:
+        update_cache: yes
+      tags: [zeek]
+
+    - name: Install Zeek
+      apt:
+        name: zeek-lts
+        state: present
+      tags: [zeek]
+
+    - name: Add Zeek to PATH
+      copy:
+        dest: /etc/profile.d/zeek.sh
+        content: |
+          export PATH=$PATH:/opt/zeek/bin
+        mode: '0644'
+      tags: [zeek]
+
+    - name: Create symlink for zeekctl
+      file:
+        src: /opt/zeek/bin/zeekctl
+        dest: /usr/local/bin/zeekctl
+        state: link
+      tags: [zeek]
+
+    - name: Configure Zeek node
+      lineinfile:
+        path: /opt/zeek/etc/node.cfg
+        regexp: '^interface='
+        line: 'interface={{ monitoring_interface }}'
+      tags: [zeek]
+
+    - name: Configure Zeek networks
+      copy:
+        dest: /opt/zeek/etc/networks.cfg
+        content: |
+          {{ home_network }}    Private IP space
+        mode: '0644'
+      tags: [zeek]
+
+    - name: Initialize Zeek
+      shell: /opt/zeek/bin/zeekctl install
+      tags: [zeek]
+
+    - name: Deploy Zeek
+      shell: /opt/zeek/bin/zeekctl deploy
+      tags: [zeek]
+
+    # ==================== Create monitoring script ====================
+    - name: Create IDS comparison script
+      copy:
+        dest: /usr/local/bin/check_ids.sh
+        mode: '0755'
+        content: |
+          #!/bin/bash
+          echo "=== IDS/IPS Status Check ==="
+          echo ""
+          
+          echo "1. Suricata:"
+          systemctl is-active suricata && echo "   Status: RUNNING" || echo "   Status: STOPPED"
+          echo "   Version: $(suricata --version 2>&1 | head -1)"
+          echo "   Alerts: $(grep -c . /var/log/suricata/fast.log 2>/dev/null || echo 0)"
+          
+          echo ""
+          echo "2. Snort:"
+          pgrep snort &>/dev/null && echo "   Status: RUNNING" || echo "   Status: STOPPED"
+          snort --version 2>&1 | head -1 || echo "   Not installed"
+          
+          echo ""
+          echo "3. Zeek:"
+          /opt/zeek/bin/zeekctl status || echo "   Not running"
+          echo "   Version: $(/opt/zeek/bin/zeek --version 2>&1)"
+          echo "   Logs: $(ls -lh /opt/zeek/logs/current/ 2>/dev/null | wc -l) files"
+
+    # ==================== Verification ====================
+    - name: Check Suricata status
+      command: suricata --build-info
+      register: suricata_info
+      changed_when: false
+      failed_when: false
+      tags: [verify]
+
+    - name: Check Snort status
+      command: snort --version
+      register: snort_info
+      changed_when: false
+      failed_when: false
+      tags: [verify]
+
+    - name: Check Zeek status
+      shell: /opt/zeek/bin/zeek --version
+      register: zeek_info
+      changed_when: false
+      failed_when: false
+      tags: [verify]
+
+    - name: Display installation results
+      debug:
+        msg:
+          - "=== Installation Summary ==="
+          - "Suricata: {{ 'OK' if suricata_info.rc == 0 else 'FAILED' }}"
+          - "Snort: {{ 'OK' if snort_info.rc == 0 else 'FAILED' }}"
+          - "Zeek: {{ 'OK' if zeek_info.rc == 0 else 'FAILED' }}"
+          - ""
+          - "All systems installed successfully!"
+          - "Run '/usr/local/bin/check_ids.sh' on bastion to check status"
+      tags: [verify]

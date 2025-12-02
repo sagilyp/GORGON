@@ -1,5 +1,6 @@
 ---
-ubuntu_codename: "jammy"
+ubuntu_codename: "focal"
 tor_repo_url: "tor+http://deb.torproject.org/torproject.org"
 tor_keyring_url: "https://deb.torproject.org/torproject.org/A3C4F0F979CAA22CDBA8F512EE8CBC9E886DDD89.asc"
 openvpn_config: "14.36.131.192.conf"
+ 

@@ -1,76 +1,88 @@
+
 package main
 
 import (
-	"bufio"
-	"context"
-	"fmt"
-	"log"
-	"net/http"
-	"net/url"
-	"os/exec"
-	"strings"
-	"time"
+       "bufio"
+       "context"
+       "fmt"
+       "net/http"
+       "net/url"
+       "os/exec"
+       "strings"
+       "time"
+       "tor-filtering/logger"
 )
 
-const (
-	TelegramBotToken = "7779836915:AAGZJ8BaJ6se0ryjW9_KHL3INBLi8RGueRo"
-	TelegramChatID   = "-4787521880"
-	matchPrefix      = "TOR_BLOCK"
-	httpTimeout      = 5 * time.Second
-)
-
-func StartJournalAlerts(ctx context.Context) {
-	cmd := exec.CommandContext(ctx, "journalctl", "-kf", "--output=cat")
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		fmt.Printf("alerter: stdout pipe error: %v\n", err)
-		return
-	}
-	if err := cmd.Start(); err != nil {
-		fmt.Printf("alerter: failed to start journalctl: %v\n", err)
-		return
-	}
-
-	scanner := bufio.NewScanner(stdout)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.Contains(line, matchPrefix) {
-			go sendTelegramAlert(line)
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		fmt.Printf("alerter: scanner error: %v\n", err)
-	}
-	cmd.Wait()
+type TelegramAlerter struct {
+       Logger         logger.Logger
+       BotToken       string
+       ChatID         string
+       MatchPrefix    string
+       Timeout        time.Duration
 }
 
-func sendTelegramAlert(msg string) {
-	escaped := strings.NewReplacer(
-		"&", "&amp;",
-		"<", "&lt;",
-		">", "&gt;",
-	).Replace(msg)
+func NewTelegramAlerter(l logger.Logger, token, chatID, matchPrefix string, timeout time.Duration) *TelegramAlerter {
+       return &TelegramAlerter{
+	       Logger: l,
+	       BotToken: token,
+	       ChatID: chatID,
+	       MatchPrefix: matchPrefix,
+	       Timeout: timeout,
+       }
+}
 
-	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", TelegramBotToken)
-	if len(escaped) > 300 {
-		escaped = escaped[:300] + "…"
-	}
-	text := fmt.Sprintf("🚨 <b>Blocked TOR</b>:\n<code>%s</code>", escaped)
+func (t *TelegramAlerter) StartJournalAlerts(ctx context.Context) {
+       cmd := exec.CommandContext(ctx, "journalctl", "-kf", "--output=cat")
+       stdout, err := cmd.StdoutPipe()
+       if err != nil {
+	       t.Logger.Logf("alerter: stdout pipe error: %v", err)
+	       return
+       }
+       if err := cmd.Start(); err != nil {
+	       t.Logger.Logf("alerter: failed to start journalctl: %v", err)
+	       return
+       }
 
-	form := url.Values{
-		"chat_id":    {TelegramChatID},
-		"text":       {text},
-		"parse_mode": {"HTML"},
-	}
+       scanner := bufio.NewScanner(stdout)
+       for scanner.Scan() {
+	       line := scanner.Text()
+	       if strings.Contains(line, t.MatchPrefix) {
+		       go t.SendTelegramAlert(line)
+	       }
+       }
+       if err := scanner.Err(); err != nil {
+	       t.Logger.Logf("alerter: scanner error: %v", err)
+       }
+       cmd.Wait()
+}
 
-	client := &http.Client{Timeout: httpTimeout}
-	resp, err := client.PostForm(apiURL, form)
-	if err != nil {
-		log.Printf("alerter: Telegram send error: %v", err)
-		return
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("alerter: Telegram API returned %s", resp.Status)
-	}
+func (t *TelegramAlerter) SendTelegramAlert(msg string) {
+       escaped := strings.NewReplacer(
+	       "&", "&amp;",
+	       "<", "&lt;",
+	       ">", "&gt;",
+       ).Replace(msg)
+
+       apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", t.BotToken)
+       if len(escaped) > 300 {
+	       escaped = escaped[:300] + "\u2026"
+       }
+       text := fmt.Sprintf("\U0001f6a8 <b>Blocked TOR</b>:\n<code>%s</code>", escaped)
+
+       form := url.Values{
+	       "chat_id":    {t.ChatID},
+	       "text":       {text},
+	       "parse_mode": {"HTML"},
+       }
+
+       client := &http.Client{Timeout: t.Timeout}
+       resp, err := client.PostForm(apiURL, form)
+       if err != nil {
+	       t.Logger.Logf("alerter: Telegram send error: %v", err)
+	       return
+       }
+       defer resp.Body.Close()
+       if resp.StatusCode != http.StatusOK {
+	       t.Logger.Logf("alerter: Telegram API returned %s", resp.Status)
+       }
 }

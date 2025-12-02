@@ -1,0 +1,95 @@
+---
+- name: Remove Tor and cleanup all related files
+  hosts: all
+  become: yes
+  
+  tasks:
+    - name: Stop Tor service
+      systemd:
+        name: tor@default
+        state: stopped
+        enabled: no
+      ignore_errors: yes
+
+    - name: Stop regular Tor service (if exists)
+      systemd:
+        name: tor
+        state: stopped
+        enabled: no
+      ignore_errors: yes
+
+    - name: Kill any running Tor processes
+      shell: pkill tor || true
+      changed_when: false
+
+    - name: Remove Tor packages
+      apt:
+        name:
+          - tor
+          - tor-geoipdb
+          - torsocks
+          - apt-transport-tor
+          - deb.torproject.org-keyring
+        state: absent
+        purge: yes
+
+    - name: Remove Tor Project repository
+      file:
+        path: /etc/apt/sources.list.d/tor.list
+        state: absent
+
+    - name: Remove Tor keyring
+      file:
+        path: /usr/share/keyrings/tor-archive-keyring.gpg
+        state: absent
+
+    - name: Remove Tor configuration directory
+      file:
+        path: /etc/tor
+        state: absent
+
+    - name: Remove Tor data directory
+      file:
+        path: /var/lib/tor
+        state: absent
+
+    - name: Remove Tor log directory
+      file:
+        path: /var/log/tor
+        state: absent
+
+    - name: Remove Tor cache directory
+      file:
+        path: /var/cache/tor
+        state: absent
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Autoremove unused packages
+      apt:
+        autoremove: yes
+        purge: yes
+
+    - name: Autoclean apt cache
+      apt:
+        autoclean: yes
+
+    - name: Verify Tor is removed
+      shell: |
+        echo "=== Checking Tor packages ==="
+        dpkg -l | grep tor || echo "No Tor packages found"
+        echo ""
+        echo "=== Checking Tor processes ==="
+        ps aux | grep tor | grep -v grep || echo "No Tor processes running"
+        echo ""
+        echo "=== Checking Tor files ==="
+        ls -la /etc/tor 2>/dev/null || echo "/etc/tor not found"
+        ls -la /var/lib/tor 2>/dev/null || echo "/var/lib/tor not found"
+      register: cleanup_check
+      changed_when: false
+
+    - name: Display cleanup results
+      debug:
+        msg: "{{ cleanup_check.stdout_lines }}"

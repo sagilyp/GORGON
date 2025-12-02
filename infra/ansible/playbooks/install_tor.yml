@@ -15,33 +15,7 @@
           - tor
           - apt-transport-tor
           - torsocks
-          - openvpn
         state: present
-
-    - name: Copy OpenVPN config (bastion only)
-      copy:
-        src: "../files/{{ openvpn_config }}"
-        dest: "/etc/openvpn/client/{{ openvpn_config }}"
-        mode: '0600'
-      when: inventory_hostname in groups['bastion']
-
-    - name: Start OpenVPN (bastion only)
-      systemd:
-        name: "openvpn-client@14.36.131.192"
-        state: started
-        enabled: yes
-      when: inventory_hostname in groups['bastion']
-      ignore_errors: yes
-      tags:
-        - openvpn
-        - bastion
-
-    - name: Wait for Tor bootstrap on bastion first
-      wait_for:
-        port: 9050
-        host: 127.0.0.1
-        timeout: 60
-      when: inventory_hostname in groups['bastion']
 
     - name: Start Tor service
       systemd:
@@ -88,3 +62,13 @@
     - name: Autoremove unused packages
       apt:
         autoremove: yes
+
+    - name: Verify Tor is working
+      shell: |
+        timeout 10 curl --socks5-hostname 127.0.0.1:9050 https://check.torproject.org/api/ip || echo "Tor not ready yet"
+      register: tor_check
+      changed_when: false
+
+    - name: Display Tor status
+      debug:
+        msg: "{{ tor_check.stdout }}"
