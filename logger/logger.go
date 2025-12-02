@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"fmt"
 )
 
 var (
@@ -37,7 +38,7 @@ func Logf(format string, v ...interface{}) {
 	once.Do(initLogger)
 	msg := format
 	if len(v) > 0 {
-		msg = log.Sprintf(format, v...)
+		msg = fmt.Sprintf(format, v...)
 	}
 	log.Printf(msg) // стандартный вывод (journalctl)
 	if fileLogger != nil {
