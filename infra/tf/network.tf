@@ -32,8 +32,6 @@ resource "yandex_vpc_route_table" "via_bastion" {
 
   static_route {
     destination_prefix = "0.0.0.0/0"
-    # next_hop_address — внутренний IP бастиона в bastion_subnet
-    # здесь подставляем статический IP, который мы назначим в compute.tf (10.10.99.10)
     next_hop_address   = "10.10.99.10"
   }
 }
@@ -79,7 +77,6 @@ resource "yandex_vpc_security_group" "app_sg" {
   }
 }
 
-# DB SG — postgres only from internal VPC
 resource "yandex_vpc_security_group" "db_sg" {
   name       = "db-sg"
   network_id = yandex_vpc_network.app_network.id

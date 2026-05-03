@@ -61,15 +61,18 @@ type tcFilterProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type tcFilterMapSpecs struct {
-	BlockedIps *ebpf.MapSpec `ebpf:"blocked_ips"`
+	BridgeIps *ebpf.MapSpec `ebpf:"bridge_ips"`
+	GuardIps  *ebpf.MapSpec `ebpf:"guard_ips"`
 }
 
 // tcFilterVariableSpecs contains global variables before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type tcFilterVariableSpecs struct {
-	UnusedBlockedKey   *ebpf.VariableSpec `ebpf:"unused_blocked_key"`
-	UnusedBlockedValue *ebpf.VariableSpec `ebpf:"unused_blocked_value"`
+	UnusedBridgeKey *ebpf.VariableSpec `ebpf:"unused_bridge_key"`
+	UnusedBridgeVal *ebpf.VariableSpec `ebpf:"unused_bridge_val"`
+	UnusedGuardKey  *ebpf.VariableSpec `ebpf:"unused_guard_key"`
+	UnusedGuardVal  *ebpf.VariableSpec `ebpf:"unused_guard_val"`
 }
 
 // tcFilterObjects contains all objects after they have been loaded into the kernel.
@@ -92,12 +95,14 @@ func (o *tcFilterObjects) Close() error {
 //
 // It can be passed to loadTcFilterObjects or ebpf.CollectionSpec.LoadAndAssign.
 type tcFilterMaps struct {
-	BlockedIps *ebpf.Map `ebpf:"blocked_ips"`
+	BridgeIps *ebpf.Map `ebpf:"bridge_ips"`
+	GuardIps  *ebpf.Map `ebpf:"guard_ips"`
 }
 
 func (m *tcFilterMaps) Close() error {
 	return _TcFilterClose(
-		m.BlockedIps,
+		m.BridgeIps,
+		m.GuardIps,
 	)
 }
 
@@ -105,8 +110,10 @@ func (m *tcFilterMaps) Close() error {
 //
 // It can be passed to loadTcFilterObjects or ebpf.CollectionSpec.LoadAndAssign.
 type tcFilterVariables struct {
-	UnusedBlockedKey   *ebpf.Variable `ebpf:"unused_blocked_key"`
-	UnusedBlockedValue *ebpf.Variable `ebpf:"unused_blocked_value"`
+	UnusedBridgeKey *ebpf.Variable `ebpf:"unused_bridge_key"`
+	UnusedBridgeVal *ebpf.Variable `ebpf:"unused_bridge_val"`
+	UnusedGuardKey  *ebpf.Variable `ebpf:"unused_guard_key"`
+	UnusedGuardVal  *ebpf.Variable `ebpf:"unused_guard_val"`
 }
 
 // tcFilterPrograms contains all programs after they have been loaded into the kernel.
@@ -131,13 +138,11 @@ func _TcFilterClose(closers ...io.Closer) error {
 	return nil
 }
 
-// Exported wrapper for other packages.
 type TcFilterObjects = tcFilterObjects
 
-func LoadTcFilterObjects(obj *TcFilterObjects, opts *ebpf.CollectionOptions) error {
+func LoadTcFilterObjects(obj *tcFilterObjects, opts *ebpf.CollectionOptions) error {
     return loadTcFilterObjects(obj, opts)
 }
-
 
 // Do not access this directly.
 //

@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  gorgon:
+    image: my-gorgon-image:latest
+    networks:
+      - host
+    volumes:
+      - /var/log/gorgon:/var/log/gorgon
+      - /sys/fs/bpf:/sys/fs/bpf
+    deploy:
+      mode: global
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    cap_add:
+      - CAP_BPF
+      - CAP_NET_ADMIN
+      - CAP_SYS_ADMIN
+      - CAP_SYS_RESOURCE

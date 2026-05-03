@@ -1,23 +1,24 @@
 package logger
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"sync"
-	"fmt"
+	"time"
 )
 
 var (
 	logFilePath = "/var/log/gorgon/fast.log"
 	fileLogger *log.Logger
 	once sync.Once
+	hostname string
 )
 
 type Logger interface {
 	Logf(format string, v ...interface{})
 }
 
-// LoggerImpl реализует интерфейс Logger для DI
 type LoggerImpl struct{}
 
 func (l *LoggerImpl) Logf(format string, v ...interface{}) {
@@ -31,17 +32,33 @@ func initLogger() {
 		fileLogger = nil
 		return
 	}
-	fileLogger = log.New(f, "", log.LstdFlags)
+	fileLogger = log.New(f, "", 0)
+	host,err := os.Hostname()
+	if err != nil {
+		hostname = "unknown"
+	} 
+	hostname = host
+}
+
+func formatRFC5424(msg string) string {
+	pri := "<134>1"
+	timestamp := time.Now().UTC().Format(time.RFC3339Nano)
+	appName := "GORGON_IDS"
+	procID := fmt.Sprintf("%d", os.Getpid())
+	msgID := "-"
+	structData := "-"
+	return fmt.Sprintf("%s %s %s %s %s %s %s %s", pri, timestamp, hostname, appName, procID, msgID, structData, msg)
 }
 
 func Logf(format string, v ...interface{}) {
 	once.Do(initLogger)
-	msg := format
+	rawMsg := format
 	if len(v) > 0 {
-		msg = fmt.Sprintf(format, v...)
+		rawMsg = fmt.Sprintf(format, v...)
 	}
-	log.Printf(msg) // стандартный вывод (journalctl)
+	rfcMsg := formatRFC5424(rawMsg)
+	log.Printf(rfcMsg) // стандартный вывод journalctl
 	if fileLogger != nil {
-		fileLogger.Printf(msg)
+		fileLogger.Println(rfcMsg)
 	}
 }

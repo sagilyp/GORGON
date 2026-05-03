@@ -10,8 +10,6 @@ from stem.control import Controller
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-
-# --- Настройки ---
 BRIDGES_URL = "https://bridges.torproject.org/bridges?transport=obfs4&format=text"
 
 LANGS = ["en-US,en", "ru-RU,ru", "fr-FR,fr", "de-DE,de", "en-IN,en"]
@@ -26,7 +24,6 @@ def load_user_agents(file_path):
         agents = [line.strip() for line in f if line.strip()]
     return agents
 
-# Загрузить список один раз
 USER_AGENTS = load_user_agents('/home/sagilyp/GORGONA/bridge-harvester/user_agents.txt')
 
 
@@ -40,7 +37,6 @@ def renew_tor_ip():
 
 def setup_profile():
     profile = webdriver.FirefoxProfile()
-    # Выбрать случайный User-Agent
     random_user_agent = random.choice(USER_AGENTS)
     profile.set_preference("general.useragent.override", random_user_agent)
     profile.set_preference("network.proxy.type", 1)

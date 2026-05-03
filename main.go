@@ -3,7 +3,11 @@ package main
 import (
 	"context"
 	"time"
-
+    "os"
+	"bufio"
+	"strings"
+    "os/signal"
+    "syscall"
 	"tor-filtering/filter"
 	"tor-filtering/logger"
 )
@@ -19,52 +23,68 @@ const (
 )
 
 func updateAll(
-    nodeMgr *filter.TorNodeManager,
-    tcIngressMgr *filter.TCManager,  // ✅ Для exit nodes (входящий)
-    tcEgressMgr *filter.TCManager,   // ✅ Для guard/bridge (исходящий)
-    fileMgr *filter.FileManager,
-    ipDiff *filter.IPDiff,
+	nodeMgr *filter.TorNodeManager,
+	xdpMgr *filter.XDPManager,
+	tcEgressMgr *filter.TCManager,
+	fileMgr *filter.FileManager,
+	ipDiff *filter.IPDiff,
 ) {
-    nodeMgr.Logger.Logf("Updating TOR lists ...")
-    
-    // Exit nodes - блокировка входящих соединений
-    prevExit, _ := fileMgr.ReadIPsFromFile(ExitTxt)
-    newExit, err := nodeMgr.FetchExitNodes()
-    if err != nil {
-        nodeMgr.Logger.Logf("FetchExitNodes error: %v", err)
-    } else {
-        toRemove, toAdd := ipDiff.Diff(prevExit, newExit)
-        tcIngressMgr.RemoveIPsFromIPSet(ExitSet, toRemove)
-        tcIngressMgr.AddIPsToIPSet(ExitSet, toAdd)
-        if err := fileMgr.WriteIPsToFile(ExitTxt, newExit); err != nil {
-            nodeMgr.Logger.Logf("WriteIPsToFile exit: %v", err)
-        }
-    }
-    
-    // Guard nodes - блокировка исходящих соединений
-    prevGuard, _ := fileMgr.ReadIPsFromFile(GuardTxt)
-    newGuard, err := nodeMgr.FetchGuardNodes()
-    if err != nil {
-        nodeMgr.Logger.Logf("FetchGuardNodes: %v", err)
-    } else {
-        toRemove, toAdd := ipDiff.Diff(prevGuard, newGuard)
-        tcEgressMgr.RemoveIPsFromIPSet(GuardSet, toRemove)
-        tcEgressMgr.AddIPsToIPSet(GuardSet, toAdd)
-        if err := fileMgr.WriteIPsToFile(GuardTxt, newGuard); err != nil {
-            nodeMgr.Logger.Logf("WriteIPsToFile guard: %v", err)
-        }
-    }
-    
-    // Bridges - блокировка исходящих соединений
-    bridges, err := fileMgr.ReadIPsFromFile(BridgeTxt)
-    if err != nil {
-        nodeMgr.Logger.Logf("ReadLines bridges: %v", err)
-    } else {
-        tcEgressMgr.ClearIPSet(BridgeSet)
-        tcEgressMgr.AddIPsToIPSet(BridgeSet, bridges)
-    }
-    
-    nodeMgr.Logger.Logf("=== updating completed ===")
+	nodeMgr.Logger.Logf("Updating TOR lists ...")
+
+	// Exit nodes
+	prevExit, _ := fileMgr.ReadIPsFromFile(ExitTxt)
+	newExit, err := nodeMgr.FetchExitNodes()
+	if err != nil {
+		nodeMgr.Logger.Logf("FetchExitNodes error: %v. Loading cached IPs.", err)
+		xdpMgr.AddIPsToIPSet(ExitSet, prevExit)
+	} else {
+		toRemove, toAdd := ipDiff.Diff(prevExit, newExit)
+		xdpMgr.RemoveIPsFromIPSet(ExitSet, toRemove)
+		xdpMgr.AddIPsToIPSet(ExitSet, toAdd)
+		_ = fileMgr.WriteIPsToFile(ExitTxt, newExit)
+	}
+
+	// Guard nodes
+	prevGuard, _ := fileMgr.ReadIPsFromFile(GuardTxt)
+	newGuard, err := nodeMgr.FetchGuardNodes()
+	if err != nil {
+		nodeMgr.Logger.Logf("FetchGuardNodes error: %v. Loading cached IPs.", err)
+		tcEgressMgr.AddGuardIPs(GuardSet, prevGuard)
+	} else {
+		toRemove, toAdd := ipDiff.Diff(prevGuard, newGuard)
+		tcEgressMgr.RemoveGuardIPs(GuardSet, toRemove)
+		tcEgressMgr.AddGuardIPs(GuardSet, toAdd)
+		_ = fileMgr.WriteIPsToFile(GuardTxt, newGuard)
+	}
+
+	// Bridges
+	bridges, err := fileMgr.ReadIPsFromFile(BridgeTxt)
+	if err != nil {
+		nodeMgr.Logger.Logf("ReadLines bridges: %v", err)
+	} else {
+		tcEgressMgr.ClearBridgeIPs(BridgeSet)
+		tcEgressMgr.AddBridgeIPs(BridgeSet, bridges)
+	}
+
+	nodeMgr.Logger.Logf("=== updating completed ===")
+}
+
+func TracePipeToFastLog(ctx context.Context, logImpl logger.Logger, prefix string) {
+	file, err := os.Open("/sys/kernel/debug/tracing/trace_pipe")
+	if err != nil {
+		logImpl.Logf("Failed to open trace_pipe: %v (did you mount debugfs?)", err)
+		return
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, prefix) {
+			idx := strings.Index(line, prefix)
+			logImpl.Logf("%s", line[idx:])
+		}
+	}
 }
 
 func main() {
@@ -81,35 +101,43 @@ func main() {
     )
     ipDiff := filter.NewIPDiff()
     
-    // Инициализация TC ingress (для exit nodes)
-    tcIngressMgr, err := filter.NewTCManager(logImpl, "eth0", filter.TCDirectionIngress)
+    xdpMgr, err := filter.NewXDPManager(logImpl)
     if err != nil {
-        logImpl.Logf("FATAL: init TC ingress: %v", err)
+        logImpl.Logf("FATAL: init XDP ingress: %v", err)
         return
     }
-    defer tcIngressMgr.Close()
+    defer xdpMgr.Close()
 
-    // Инициализация TC egress (для guard/bridge nodes)
-    tcEgressMgr, err := filter.NewTCManager(logImpl, "eth0", filter.TCDirectionEgress)
+    tcEgressMgr, err := filter.NewTCManager(logImpl, filter.TCDirectionEgress)
     if err != nil {
         logImpl.Logf("FATAL: init TC egress: %v", err)
         return
     }
     defer tcEgressMgr.Close()
-
+	tgToken := os.Getenv("TG_BOT_TOKEN")
+    tgChatID := os.Getenv("TG_CHAT_ID")
+	if tgToken == "" || tgChatID == "" {
+        logImpl.Logf("FATAL: Не заданы переменные окружения TG_BOT_TOKEN или TG_CHAT_ID")
+        return
+    }
     telegramAlerter := NewTelegramAlerter(
         logImpl,
-        "7779836915:AAGZJ8BaJ6se0ryjW9_KHL3INBLi8RGueRo",
-        "-4787521880",
-        "TOR_BLOCK",
+        tgToken,
+        tgChatID,
+        "TOR_DETECT",
         5*time.Second,
     )
     go telegramAlerter.StartJournalAlerts(ctx)
-
-    updateAll(nodeMgr, tcIngressMgr, tcEgressMgr, fileMgr, ipDiff)
+    go TracePipeToFastLog(ctx, logImpl, "TOR_DETECT")
+    updateAll(nodeMgr, xdpMgr, tcEgressMgr, fileMgr, ipDiff)
     ticker := time.NewTicker(UpdateInterval)
     defer ticker.Stop()
     for range ticker.C {
-        updateAll(nodeMgr, tcIngressMgr, tcEgressMgr, fileMgr, ipDiff)
+        updateAll(nodeMgr, xdpMgr, tcEgressMgr, fileMgr, ipDiff)
     }
+    logImpl.Logf("Gorgon IDS started, waiting for signals...")
+    sigCh := make(chan os.Signal, 1)
+    signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+    <-sigCh 
+    logImpl.Logf("Shutting down... detaching eBPF filters from interfaces...")
 }

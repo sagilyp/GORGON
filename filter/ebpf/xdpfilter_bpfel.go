@@ -140,8 +140,7 @@ func _XdpFilterClose(closers ...io.Closer) error {
 
 type XdpFilterObjects = xdpFilterObjects
 
-// LoadXdpFilterObjects — экспортируемая обёртка над loadXdpFilterObjects.
-func LoadXdpFilterObjects(obj *XdpFilterObjects, opts *ebpf.CollectionOptions) error {
+func LoadXdpFilterObjects(obj *xdpFilterObjects, opts *ebpf.CollectionOptions) error {
     return loadXdpFilterObjects(obj, opts)
 }
 
